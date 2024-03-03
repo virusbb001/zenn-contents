@@ -238,3 +238,337 @@ let field_guards = fields.clone().filter_map(|field| {
 ```rust
 let field_idents = fields.clone().filter_map(|field| field.ident.as_ref());
 ```
+
+## 05-method-chaining
+
+このテストではメソッドチェインできるようにするものだが、03-call-setterの中で既に実装されているため、テストの有効化だけして終了。
+
+コミット: c86c807
+
+## 06-optional-chaining
+
+このテストでは、 `Option` 型が指定されていれば、そのフィールドの指定をしなくても `build` が成功するように変更しなければならない。ここで、テスト先頭のコメントには "コンパイラはマクロの展開が完全に終了したあとに名前解決を実行する。そのため、マクロの評価中はトークンから実際の型が何かを調べることが出来ず、トークンのみを確認することのみ出来る" といったことが書かれている。
+
+`Option` を表現する方法もたくさんあることが触れられているが、今回は `Option<T>` のケースのみ考慮する。(大抵の場合は `Option` は `std::option::Option` で使用されるので、考慮することは多分少ない。)
+
+始めに、完成結果について考える。
+
+```rust
+pub struct CommandBuilder {
+    ...
+    current_dir: Option<String>, // Command.current_dirから変更が無い
+}
+
+impl CommandBuilder {
+    ...
+    // 引数の型がCommand.current_dirと違い、Optionの中のTを受け入れるようになっている
+    pub fn current_dir(&mut self, current_dir: String) -> &mut Self {
+        self.current_dir = Some(executable);
+        self
+    }
+
+    pub fn build(&mut self) -> Result<Command, Box<dyn std::error::Error>> {
+        ...
+        // CommandBuilder.current_dirとCommand.current_dirの型は同じなので、
+        // 単にcloneするだけで良くなる
+        let current_dir = self.current_dir.clone();
+        ...
+    }
+}
+```
+
+やることは以下の3つである。
+
+1. `CommandBuilder` の型のフィールドを変更
+1. セッターの変更
+1. `build` 内の処理の変更
+
+型が `Option<T>` か否かで変更をすれば良さそうにみえる。
+
+`Type` が `Option<T>` の形式か調べるメソッド `fn is_option(ty: &Type) -> bool` を作成する。
+`Option<T>` がどのような形式のデータになるかはコメントにあるため、有り難くそれを参照する。
+
+```rust
+fn is_option(ty: &Type) -> bool {
+    let Type::Path(type_path) = ty else {
+        return false;
+    };
+
+    type_path.path.segments.first().map(|segment| segment.ident == "Option").unwrap_or(false)
+}
+```
+
+動作確認は以下のコードで行なう。
+
+```rust
+fields.clone().for_each(|field| {
+    eprintln!("{}", is_option(&field.ty));
+});
+```
+
+stderrに以下のように出力されていれば成功。これはフィールドの上から順の結果と対応している。
+
+```
+false
+false
+false
+true
+```
+
+型の情報が不要な、 `CommandBuilder` のフィールドと `build` 内のガードについて考える。
+
+```rust
+let builder_field = fields.clone().filter_map(|field| {
+    let ty = &field.ty;
+    field.ident.as_ref().map(|ident| {
+        if is_option(ty) {
+            quote! {
+                #ident: #ty
+            }
+        } else {
+            quote! {
+                #ident: Option<#ty>
+            }
+        }
+    })
+});
+
+let field_guards = fields.clone().filter_map(|field| {
+    let ty = &field.ty;
+    field.ident.as_ref().map(|ident| {
+        if is_option(ty) {
+            quote! {
+                let current_dir = self.current_dir.clone();
+            }
+        } else {
+            quote! {
+                let Some(#ident) = self.#ident.clone() else {
+                    return Err("field is not enough".to_string().into());
+                };
+            }
+        }
+    })
+});
+```
+
+セッターの実装について検討する。セッターの変更自体は引数のみの変更であるが、そのためには `Option<T>` の中の `T` の情報を取りださなければならない。
+
+テストコードのコメントを参考に、最も単純に `GenericArgument::Type` の中を取得するコードを作成する。
+
+```rust
+fn get_type_in_generics(ty: &Type) -> Option<&Type> {
+    let Type::Path(type_path) = ty else {
+        return None;
+    };
+    let PathArguments::AngleBracketed(ref args) = type_path.path.segments.first()?.arguments else {
+        return None;
+};
+    let Some(GenericArgument::Type(ty)) = args.args.first() else {
+        return None;
+    };
+    Some(ty)
+}
+```
+
+上記のメソッドを用いて、以下のように変更する。
+
+```rust
+let setters = fields.clone().filter_map(|field| {
+    let ty = &field.ty;
+    field.ident.as_ref().map(|ident| {
+        if is_option(ty) {
+            let arg_ty = get_type_in_generics(ty);
+
+            quote! {
+                pub fn #ident(&mut self, #ident: #arg_ty) -> &mut Self {
+                    self.#ident = Some(#ident);
+                self
+            }
+        } else {
+            quote! {
+                pub fn #ident(&mut self, #ident: #ty) -> &mut Self {
+                    self.#ident = Some(#ident);
+                self
+            }
+        }
+    })
+});
+```
+
+コミット: db9ea58
+
+## 07-repeated-field
+
+このテストでは `#[builder(each = "...")]` がついているフィールドについては、 型が `Vec<T>` であると仮定して、 `each` に対応するものをメソッド名としてセッターを作成するようにする。セッター内では、実際にセットする代わりにフィールドの `Vec` に追加する処理を行なう。
+
+テストコードに着目すると、 `env` にも指定されているが、 `Option` 型を指定したとき同様、セッター関数を呼ばれなくても `build` が成功している。
+
+```rust
+fn arg(&mut self, arg: String) {
+    self.args.push(arg);
+    self
+}
+```
+
+まず、マクロで `builder` を処理できるように、テストコードのコメント内で示されているように、 `proc_macro_derive` の行を `#[proc_macro_derive(Builder, attributes(builder))]` に変更する。
+
+次に、フィールドに対して、 `builder(each="...")` の `each` に指定されている値を返すメソッドを作成する。常に指定されているとは限らないので、`Option<T>` を返却する。 `T` の具体的な型は、実際の属性のデータを確認してから決定することにする。
+
+確認のために、 `args` フィールドの中のみを表示することにする。そのために、`field` のフィールド名が `args` かどうか比較する必要がある。 `field` の名前は `field.ident` から取得できることはこれまでの実装で分かっているので、 `field.ident` と `"args"` で比較する方法を考える。 `field.ident` は `Option<Ident>` 型であるため、`Ident` を `&str` と比較する方法を考える。 `Ident` のドキュメントを見ると、 `impl<T> PartialEq<T> for Ident where T: AsRef<str> + ?Sized` が実装されているので、そのまま `&str` と比較できることがわかる。そのため、以下のコードを仕込むことで、 `args` のみの情報を表示することができる。
+
+```rust
+fields.clone().for_each(|field| {
+    if field.ident.as_ref().is_some_and(|ident| ident == "args")  {
+        eprintln!("{:#?}", field);
+    }
+});
+```
+
+結果を確認すると、 `field.attrs` の最初の要素の `meta` に `builder(each = "env")` の情報が格納されていることがわかる。また、 `meta.tokens` には `each = "env"` の情報が格納されていることがわかる。
+
+`each` の値を取得するメソッドを作成する。引数は `&[Attribute]` とし、返り値は `Option<T>` とする。 `T` の値は後ほど決定する。
+
+まず、 `T` が `&proc_macro2::TokenStream` を返却する処理を作成する。
+
+```rust
+fn get_value_of_each(attrs: &[Attribute]) -> Option<&proc_macro2::TokenStream> {
+    let Meta::List(ref list) = attrs.first()?.meta else {
+        return None
+    };
+
+    Some(&list.tokens)
+}
+```
+
+`Meta::List` 内のデータを直接見て解析しても良いが、 [`Attribute` の docs.rs](https://docs.rs/syn/2.0.50/syn/struct.Attribute.html) を確認すると、 `Meta::List` をパースする `parse_args` が提供されているので、そちらを利用する。 `parse_args` には型の指定が必要なので、どの型に対応するか検討する。 パースしたい対象は `each = "env"` のような構文である。 `Attribute` の docs.rsを確認すると、 `#[path = "sys/windows.rs"]` のような構文は `Meta::NameValue` として格納されるとある。 `Meta::NameValue` は `MetaNameValue` 構造体を含んだEnumであるため、 `MetaNameValue` としてパースしてみて結果を確認する。
+
+```rust
+Some(
+    Ok(
+        MetaNameValue {
+            path: Path {
+                leading_colon: None,
+                segments: [
+                    PathSegment {
+                        ident: Ident {
+                            ident: "each",
+                            span: #0 bytes(254..258),
+                        },
+                        arguments: PathArguments::None,
+                    },
+                ],
+            },
+            eq_token: Eq,
+            value: Expr::Lit {
+                attrs: [],
+                lit: Lit::Str {
+                    token: "arg",
+                },
+            },
+        },
+    ),
+)
+```
+
+正常にパースできた。この方針で進めることにする。欲しいデータが `Lit::Str` に格納されていることがわかった。これは `LitStr` を含む構造体である。 `LitStr` のdocs.rsを確認すると、 `value(&self) -> String` が実装されているので、 `get_value_of_each` は最終的に `String` を返却するように実装する。
+
+```rust
+fn get_value_of_each(attrs: &[Attribute]) -> Option<String> {
+    attrs
+        .first()
+        .and_then(|attr| attr.parse_args::<MetaNameValue>().ok())
+        .filter(|name_value| name_value.path.is_ident("each"))
+        .and_then(|name_value| {
+            let Expr::Lit(lit) = name_value.value else {
+                return None;
+            };
+
+            let Lit::Str(lit_str) = lit.lit else {
+                return None;
+            };
+
+            Some(lit_str.value())
+        })
+}
+```
+
+`get_each_arg` の返り値が `Some` かどうかで、 `each` が指定されているかどうかを判別する。
+
+`CommandBuilder` の型を変更する。 `each` が設定されていれば、 `Vec` が設定されているはずなので `Command` のフィールドの型をそのまま使用することにする。
+
+```rust
+let builder_field = fields.clone().filter_map(|field| {
+    let ty = &field.ty;
+    field.ident.as_ref().map(|ident| {
+        if is_option(ty) || get_value_of_each(&field.attrs).is_some() {
+            ...
+        } else {
+            ...
+        }
+    })
+});
+```
+
+初期値は、 `None` ではなく `Vec::new()` を使用することにする。
+
+```rust
+let builder_init = fields.clone().filter_map(|field| {
+    let attrs = &field.attrs;
+    field.ident.as_ref().map(|ident| {
+        if get_value_of_each(attrs).is_some() {
+            quote! {
+                #ident: Vec::new()
+            }
+        } else {
+            quote! {
+                #ident: None
+            }
+        }
+    })
+});
+```
+
+セッター関数は、 `each` に設定されている文字列を関数名とする実装を追加する。本来、`args` と `arg` メソッドを用意するべきだが、簡単に実装するために `each` が設定されていればそちらのみを実装するようにする。
+
+```rust
+let setters = fields.clone().filter_map(|field| {
+    let ty = &field.ty;
+    let attrs = &field.attrs;
+    field.ident.as_ref().map(|ident| {
+        if is_option(ty) {
+            ...
+        } else if let Some(each) = get_value_of_each(attrs) {
+            let each = Ident::new(&each, Span::call_site());
+            let arg_ty = get_type_in_generics(ty);
+            quote! {
+                pub fn #each(&mut self, #each: #arg_ty) -> &mut Self {
+                    self.#ident.push(#each);
+                    self
+                }
+            }
+        } else {
+            ...
+        }
+    })
+});
+```
+
+`build` 関数内に関しては、 `CommandBuilder` で `Vec` を入れるようにしたため、 `Option<T>` 型のときと同様、 単に `clone` だけ行なうようにする。
+
+```rust
+let field_guards = fields.clone().filter_map(|field| {
+    let ty = &field.ty;
+    let attrs = &field.attrs;
+    field.ident.as_ref().map(|ident| {
+        if is_option(ty) || get_value_of_each(attrs).is_some() {
+            quote! {
+                let #ident = self.#ident.clone();
+            }
+        } else {
+            ...
+        }
+    })
+});
+```
+
+コミット: 2df261072ba73b4360f48508a8188243c0471c36
