@@ -621,3 +621,12 @@ fn get_unexpected_attributes(attrs: &[Attribute]) -> Option<syn::Error> {
 ```
 
 コミット: 013fda9
+
+## 09-redefined-prelude-types
+
+ユーザは場合によっては、こちらが期待している識別子とは同名だが異なる識別子をライブラリから使用することがある。具体例はテストコードのコメントに譲る。このテストでは極端な例ではあるものの、識別子の上書きを行なっているので、そのような状況でも出力はこちらの想定した型や識別子になるように変更する。
+
+難しいことは何もなく、これまで省略していた `Vec` や `None` といったものを `std::vec::Vec` や `std::option::Option::None`
+絶対パスの調べかたは、基本的には [std の docs.rs](https://doc.rust-lang.org/std/) から検索して調べることになる。
+
+コミット: bd8138ee94d0752487d2c322c3d4a943ac16a364
