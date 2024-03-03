@@ -572,3 +572,52 @@ let field_guards = fields.clone().filter_map(|field| {
 ```
 
 コミット: 2df261072ba73b4360f48508a8188243c0471c36
+
+## 08-unrecognized-attribute
+
+このテストでは `each` 以外の値、例えば `eac` などが見つかったら、その箇所をコンパイルエラーとして表示する。
+テストコードのコメントを見るに、 `syn::Error` を作成して `to_compile_error` を呼び出すことで、コンパイルエラーとして適切な表示にできるようだ。
+
+始めに、全てのフィールドの属性を順番に検査して、1つでも見つかればその箇所のみのエラーを返却するメソッドを作成する。 `Error::new` の引数には、仮で現在検査している属性の `Span` である、 `attr.span()` を入れることにする。
+
+```rust
+fn get_unexpected_attributes(attrs: &[Attribute]) -> Option<syn::Error> {
+    attrs
+        .first()
+        .filter(|attr|
+            attr.parse_args::<MetaNameValue>()
+                .ok()
+                .is_some_and(|name_value| !name_value.path.is_ident("each")))
+        .map(|attr| syn::Error::new(attr.span(), ""))
+}
+```
+
+`syn::Error::to_compile_error` は `TokenStream` を返却するが、 `TokenStream` は `quote::ToTokens` を実装していることが [`ToTokens` の docs.rs](https://docs.rs/quote/latest/quote/trait.ToTokens.html#impl-ToTokens-for-TokenStream) からわかるので、結果を `quote!` の中に埋め込むことが出来る。また、 `impl<T: ToTokens> ToTokens for Option<T>` も実装されているので、特に `unwrap` せずに使用できることもわかる。
+
+ひとまず `get_unexpected_attributes` の結果を `quote!` に埋め込み、実行する。
+
+```rust
+let unexpected_attrs = fields.clone().find_map(|field|
+    get_unexpected_attributes(&field.attrs).map(|err| err.to_compile_error())
+);
+```
+
+テストを実行すると、 `mismatch` と表示された。コンパイルエラーにすることは出来たものの、コンパイルエラーの表示が合っていないようである。
+
+ではここで、期待されるエラーの表示を確認する。このworkshopではテストに [trybuild](https://docs.rs/trybuild/latest/trybuild/) を使用しているが、期待されるエラーメッセージは `*.stderr` というファイル名で保存されている。 `test/08-unrecognized-attribute.stderr` を確認すると、エラーメッセージは `` expected `builder(each = "...")` `` であることと、エラーの範囲が `builder(eac = "arg")]` であることが分かる。対して、現在の実装はエラーの範囲が `#[builder(eac = "arg")]` になっている。
+
+まず、エラーメッセージを変更する。これは単に `syn::Error::new` の第2引数を変更すれば良い。次に、エラー範囲の変更である。該当箇所は `07-repeated-field` で処理した `attr.meta` から `Span` を取得すれば良い。幸い、 `syn::Meta` は `Spanned` を実装しているので `attr.meta.span()` を呼び出す処理に置き換えれば良い。
+
+```rust
+fn get_unexpected_attributes(attrs: &[Attribute]) -> Option<syn::Error> {
+    attrs
+        .first()
+        .filter(|attr|
+            attr.parse_args::<MetaNameValue>()
+                .ok()
+                .is_some_and(|name_value| !name_value.path.is_ident("each")))
+        .map(|attr| syn::Error::new(attr.meta.span(), "expected `builder(each = \"...\")`"))
+}
+```
+
+コミット: 013fda9
