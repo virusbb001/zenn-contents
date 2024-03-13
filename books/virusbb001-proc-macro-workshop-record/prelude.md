@@ -37,6 +37,11 @@ proc-macro-workshopに取り組み、実際にやった処理を残す。
 1. Debugging tipsの項目を読む
 1. [cargo-expand](https://github.com/dtolnay/cargo-expand) をインストール
 
+## 順番を決める。
+
+README.mdの `Project recommendations` を見るに、最初は `builder` が推奨され、最後に(少なくとも2つのプロジェクトをしっかりと理解したうえで) `bitfield` が推奨されている。
+他の3種は目的に応じて順番を決めるが、今回は紹介されている順に進めることにする。すなわち、読者はこの本を順番に読む想定で執筆する。
+
 # 謝辞・参考文献
 
 以下の記事を参考にしました。
@@ -48,3 +53,4 @@ proc-macro-workshopに取り組み、実際にやった処理を残す。
 * [proc-macro-workshop/builder に取り組む](https://zenn.dev/hpp/scraps/7b984ca72eefce)
 * [magurotuna/proc-macro-workshop](https://github.com/magurotuna/proc-macro-workshop)
 * [jonhoo/proc-macro-workshop](https://github.com/jonhoo/proc-macro-workshop)
+* [zjp-CN/proc-macro-workshop](https://github.com/zjp-CN/proc-macro-workshop)
