@@ -54,3 +54,4 @@ README.mdの `Project recommendations` を見るに、最初は `builder` が推
 * [magurotuna/proc-macro-workshop](https://github.com/magurotuna/proc-macro-workshop)
 * [jonhoo/proc-macro-workshop](https://github.com/jonhoo/proc-macro-workshop)
 * [zjp-CN/proc-macro-workshop](https://github.com/zjp-CN/proc-macro-workshop)
+* [https://stackoverflow.com/questions/30540766/how-can-i-add-new-methods-to-iterator](https://stackoverflow.com/questions/30540766/how-can-i-add-new-methods-to-iterator)

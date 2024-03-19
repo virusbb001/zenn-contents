@@ -8,3 +8,4 @@ chapters:
   - prelude
   - builder
   - debug
+  - seq
