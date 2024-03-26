@@ -9,3 +9,5 @@ chapters:
   - builder
   - debug
   - seq
+  - sorted
+  - bitfield
