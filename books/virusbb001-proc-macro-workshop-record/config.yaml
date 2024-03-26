@@ -1,7 +1,7 @@
 title: "proc-macro-workshopをやってみた記録"
 summary: "proc-macro-workshopに取り組み、実際にやった処理の記録"
 topics: ["rust", "日記"]
-published: false
+published: true
 price: 0 # 有料の場合200〜5000
 # 本に含めるチャプターを順番に並べましょう
 chapters:
