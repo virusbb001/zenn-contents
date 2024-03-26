@@ -855,7 +855,7 @@ SeqTokenTree::Trees(trees) => {
 
 ## 07-inclusive-range
 
-`a..=b` の対応を行なう。 これまでは `start, end` の実装をしてきたが、この実装だと `b` が `usize::MAX` だったときに破綻するため、 `Iterator` を格納するように変更する。
+`a..=b` の対応を行なう。 これまでは `start, end` の実装をしてきたが、この実装だと `b` が `usize::MAX` だったときに破綻するため、 `Iterator` を使用して出力するように変更する。
 
 `Seq` に `..=` で格納されたかの情報 `inclusive` を追加する。パース処理は `..` パース処理後に以下を追記するだけである。
 
